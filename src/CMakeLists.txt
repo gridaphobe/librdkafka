@@ -43,6 +43,8 @@ set(
     rdkafka_idempotence.c
     rdkafka_cert.c
     rdkafka_coord.c
+    rdkafka_mock.c
+    rdkafka_mock_handlers.c
     rdlist.c
     rdlog.c
     rdmurmur2.c
