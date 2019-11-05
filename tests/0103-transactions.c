@@ -136,11 +136,13 @@ static void do_test_basic_producer_txn (void) {
                 if (txn[i].abort) {
                         test_curr->ignore_dr_err = rd_true;
                         TEST_CALL__(rd_kafka_abort_transaction(
-                                            p, errstr, sizeof(errstr)));
+                                            p, 30*1000,
+                                            errstr, sizeof(errstr)));
                 } else {
                         test_curr->ignore_dr_err = rd_false;
                         TEST_CALL__(rd_kafka_commit_transaction(
-                                            p, errstr, sizeof(errstr)));
+                                            p, 30*1000,
+                                            errstr, sizeof(errstr)));
                 }
 
                 if (!txn[i].sync)
@@ -275,7 +277,8 @@ void do_test_consumer_producer_txn (void) {
         TEST_CALL__(rd_kafka_begin_transaction(p1, errstr, sizeof(errstr)));
         test_produce_msgs2(p1, input_topic, testid, RD_KAFKA_PARTITION_UA,
                            0, msgcnt, NULL, 0);
-        TEST_CALL__(rd_kafka_commit_transaction(p1, errstr, sizeof(errstr)));
+        TEST_CALL__(rd_kafka_commit_transaction(p1, 30*1000,
+                                                errstr, sizeof(errstr)));
         rd_kafka_destroy(p1);
 
         /* Create Consumer 1: reading msgs from input_topic (Producer 1) */
@@ -381,11 +384,13 @@ void do_test_consumer_producer_txn (void) {
                 if (do_abort) {
                         test_curr->ignore_dr_err = rd_true;
                         TEST_CALL__(rd_kafka_abort_transaction(
-                                            p2, errstr, sizeof(errstr)));
+                                            p2, 30*1000,
+                                            errstr, sizeof(errstr)));
                 } else {
                         test_curr->ignore_dr_err = rd_false;
                         TEST_CALL__(rd_kafka_commit_transaction(
-                                            p2, errstr, sizeof(errstr)));
+                                            p2, 30*1000,
+                                            errstr, sizeof(errstr)));
                 }
 
                 TEST_ASSERT(remains == 0,
@@ -599,7 +604,7 @@ static void do_test_fenced_txn (rd_bool_t produce_after_fence) {
         }
 
 
-        err = rd_kafka_commit_transaction(p1, errstr, sizeof(errstr));
+        err = rd_kafka_commit_transaction(p1, 30*1000, errstr, sizeof(errstr));
 
         if (produce_after_fence) {
                 TEST_ASSERT(rd_kafka_fatal_error(p1, NULL, 0),

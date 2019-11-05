@@ -328,14 +328,14 @@ static void txn_producer_makeTestMessages (RdKafka::Producer *producer,
   switch (tt) {
   case TransactionType_BeginAbort:
   case TransactionType_ContinueAbort:
-    err = producer->abort_transaction(errstr);
+    err = producer->abort_transaction(30*1000, errstr);
     if (err)
       Test::Fail("abort_transaction() failed: " + errstr);
     break;
 
   case TransactionType_BeginCommit:
   case TransactionType_ContinueCommit:
-    err = producer->commit_transaction(errstr);
+    err = producer->commit_transaction(30*1000, errstr);
     if (err)
       Test::Fail("commit_transaction() failed: " + errstr);
     break;

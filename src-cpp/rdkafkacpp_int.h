@@ -1285,11 +1285,12 @@ class ProducerImpl : virtual public Producer, virtual public HandleImpl {
 
   }
 
-  ErrorCode commit_transaction (std::string &errstr) {
+  ErrorCode commit_transaction (int timeout_ms, std::string &errstr) {
     rd_kafka_resp_err_t c_err;
     char errbuf[512];
 
-    c_err = rd_kafka_commit_transaction(rk_, errbuf, sizeof(errbuf));
+    c_err = rd_kafka_commit_transaction(rk_, timeout_ms,
+                                        errbuf, sizeof(errbuf));
     if (c_err)
       errstr = errbuf;
 
@@ -1297,11 +1298,11 @@ class ProducerImpl : virtual public Producer, virtual public HandleImpl {
 
   }
 
-  ErrorCode abort_transaction (std::string &errstr) {
+  ErrorCode abort_transaction (int timeout_ms, std::string &errstr) {
     rd_kafka_resp_err_t c_err;
     char errbuf[512];
 
-    c_err = rd_kafka_abort_transaction(rk_, errbuf, sizeof(errbuf));
+    c_err = rd_kafka_abort_transaction(rk_, timeout_ms, errbuf, sizeof(errbuf));
     if (c_err)
       errstr = errbuf;
 

@@ -31,6 +31,7 @@
 #include "rdkafka_idempotence.h"
 #include "rdkafka_txnmgr.h"
 #include "rdkafka_request.h"
+#include "rdunittest.h"
 
 #include <stdarg.h>
 
@@ -631,6 +632,8 @@ void rd_kafka_idemp_request_pid_failed (rd_kafka_broker_t *rkb,
         rd_kafka_wrunlock(rk);
 
         rd_kafka_idemp_restart_request_pid_tmr(rk, rd_false);
+
+        RD_UT_COVERAGE(0);
 }
 
 

@@ -101,9 +101,11 @@ rd_kafka_txn_require_states0 (rd_kafka_t *rk,
         return RD_KAFKA_RESP_ERR__STATE;
 }
 
-#define rd_kafka_txn_require_state(rk,errstr,errstr_size,states...)     \
+/** @brief \p ... is a list of states */
+#define rd_kafka_txn_require_state(rk,errstr,errstr_size,...)           \
         rd_kafka_txn_require_states0(rk, errstr, errstr_size,           \
-                                     (rd_kafka_txn_state_t[]){ states, -1 })
+                                     (rd_kafka_txn_state_t[]){          \
+                                                     __VA_ARGS__, -1 })
 
 
 
@@ -338,6 +340,7 @@ void rd_kafka_txn_idemp_state_change (rd_kafka_t *rk,
         {
         case _COMBINED(RD_KAFKA_TXN_STATE_WAIT_PID,
                        RD_KAFKA_IDEMP_STATE_ASSIGNED):
+                RD_UT_COVERAGE(1);
                 rd_kafka_txn_set_state(rk, RD_KAFKA_TXN_STATE_READY);
                 rd_kafka_txn_reply_app(rk, RD_KAFKA_RESP_ERR_NO_ERROR, NULL);
                 break;
@@ -1133,6 +1136,7 @@ static void rd_kafka_txn_handle_TxnOffsetCommit (rd_kafka_t *rk,
                 RD_KAFKA_ERR_ACTION_RETRY,
                 RD_KAFKA_RESP_ERR__TRANSPORT,
 
+                /* FIXME: Why retry? */
                 RD_KAFKA_ERR_ACTION_RETRY,
                 RD_KAFKA_RESP_ERR_UNKNOWN_TOPIC_OR_PART,
 
@@ -1286,6 +1290,7 @@ static void rd_kafka_txn_handle_AddOffsetsToTxn (rd_kafka_t *rk,
                 RD_KAFKA_ERR_ACTION_RETRY,
                 RD_KAFKA_RESP_ERR__TRANSPORT,
 
+                /* FIXME: Why retry? */
                 RD_KAFKA_ERR_ACTION_RETRY,
                 RD_KAFKA_RESP_ERR_UNKNOWN_TOPIC_OR_PART,
 
@@ -1299,6 +1304,7 @@ static void rd_kafka_txn_handle_AddOffsetsToTxn (rd_kafka_t *rk,
                 RD_KAFKA_RESP_ERR_CONCURRENT_TRANSACTIONS,
                 /* FIXME: smaller retry backoff */
 
+                /* FIXME: convert to __FENCE ? */
                 RD_KAFKA_ERR_ACTION_FATAL,
                 RD_KAFKA_RESP_ERR_INVALID_PRODUCER_EPOCH,
 
@@ -1443,12 +1449,11 @@ rd_kafka_send_offsets_to_transaction (
                 offsets, rd_kafka_topic_partition_match_valid_offset, NULL);
 
         if (valid_offsets->cnt == 0) {
-                rd_snprintf(errstr, errstr_size,
-                            "No valid offsets to commit");
+                /* No valid offsets, e.g., nothing was consumed,
+                 * this is not an error, do nothing. */
                 rd_kafka_topic_partition_list_destroy(valid_offsets);
-                return RD_KAFKA_RESP_ERR__NO_OFFSET;
+                return RD_KAFKA_RESP_ERR_NO_ERROR;
         }
-
 
         rd_kafka_topic_partition_list_sort_by_topic(valid_offsets);
 
@@ -1571,6 +1576,7 @@ static void rd_kafka_txn_handle_EndTxn (rd_kafka_t *rk,
 
         if (actions & RD_KAFKA_ERR_ACTION_FATAL) {
                 // FIXME
+                // RD_UT_COVERAGE();
 
         } else if (actions & RD_KAFKA_ERR_ACTION_REFRESH) {
                 rd_rkb_dbg(rkb, EOS, "COMMITTXN",
@@ -1578,6 +1584,7 @@ static void rd_kafka_txn_handle_EndTxn (rd_kafka_t *rk,
                            is_commit ? "commit" : "abort",
                            rd_kafka_err2str(err));
                 // FIXME
+                //RD_UT_COVERAGE();
         }
 
         rd_kafka_wrunlock(rk);
@@ -1725,7 +1732,7 @@ rd_kafka_txn_op_begin_commit (rd_kafka_t *rk,
  *         other unexpected error
  */
 rd_kafka_resp_err_t
-rd_kafka_commit_transaction (rd_kafka_t *rk,
+rd_kafka_commit_transaction (rd_kafka_t *rk, int timeout_ms /*FIXME:handle*/,
                              char *errstr, size_t errstr_size) {
         rd_kafka_op_t *reply;
         rd_kafka_resp_err_t err;
@@ -1882,7 +1889,7 @@ rd_kafka_txn_op_abort_transaction (rd_kafka_t *rk,
 
 
 rd_kafka_resp_err_t
-rd_kafka_abort_transaction (rd_kafka_t *rk,
+rd_kafka_abort_transaction (rd_kafka_t *rk, int timeout_ms /* FIXME:handle */,
                             char *errstr, size_t errstr_size) {
         rd_kafka_op_t *reply;
         rd_kafka_resp_err_t err;
@@ -2000,11 +2007,15 @@ static rd_kafka_t *ut_create_txn_producer (void) {
         rd_kafka_t *rk;
         char txnid[32];
         char errstr[512];
+        const char *debug;
 
         rd_snprintf(txnid, sizeof(txnid), "unittest%x", rd_jitter(1, 1000000));
 
         rd_kafka_conf_set(conf, "transactional.id", txnid, NULL, 0);
         rd_kafka_conf_set(conf, "test.mock.num.brokers", "3", NULL, 0);
+
+        if ((debug = rd_getenv("TEST_DEBUG", NULL)))
+                rd_kafka_conf_set(conf, "debug", debug, NULL, 0);
 
         rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
         if (!rk) {
@@ -2018,12 +2029,97 @@ static rd_kafka_t *ut_create_txn_producer (void) {
 
 
 /**
- * @brief Test osmething
+ * @brief Test errors using mock broker error injections and code coverage
+ *        checks.
  */
-static int ut_txnmgr_test_something (void) {
+static int ut_txnmgr_test_InitPid_errors (void) {
         rd_kafka_t *rk = ut_create_txn_producer();
+        rd_kafka_resp_err_t err;
+        char errstr[512];
+        rd_kafka_topic_partition_list_t *offsets;
 
         RD_UT_ASSERT(rk, "Failed to create producer");
+
+        /*
+         * Inject som InitProducerId errors that causes retries
+         */
+        rd_kafka_mock_push_request_errors(
+                rk->rk_mock.cluster,
+                RD_KAFKAP_InitProducerId,
+                3,
+                RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE,
+                RD_KAFKA_RESP_ERR_NOT_COORDINATOR,
+                RD_KAFKA_RESP_ERR_COORDINATOR_LOAD_IN_PROGRESS);
+
+        err = rd_kafka_init_transactions(rk, 5000, errstr, sizeof(errstr));
+        RD_UT_ASSERT(!err, "init_transactions failed: %s", errstr);
+
+        RD_UT_COVERAGE_CHECK(0); /* idemp_request_pid_failed(retry) */
+        RD_UT_COVERAGE_CHECK(1); /* txn_idemp_state_change(READY) */
+
+        /*
+         * Start a transaction
+         */
+        err = rd_kafka_begin_transaction(rk, errstr, sizeof(errstr));
+        RD_UT_ASSERT(!err, "begin_transaction failed: %s", errstr);
+
+        /*
+         * Produce a message, let it fail on the first attempt, then succeed.
+         */
+        rd_kafka_mock_push_request_errors(
+                rk->rk_mock.cluster,
+                RD_KAFKAP_Produce,
+                1,
+                RD_KAFKA_RESP_ERR_NOT_ENOUGH_REPLICAS);
+
+        err = rd_kafka_producev(rk,
+                                RD_KAFKA_V_TOPIC("mytopic"),
+                                RD_KAFKA_V_VALUE("hi", 2),
+                                RD_KAFKA_V_END);
+        RD_UT_ASSERT(!err, "produce failed: %s", rd_kafka_err2str(err));
+
+        /*
+         * Send some arbitrary offsets, first with some failures, then
+         * succeed.
+         */
+        offsets = rd_kafka_topic_partition_list_new(4);
+        rd_kafka_topic_partition_list_add(offsets, "srctopic", 3)->offset = 12;
+        rd_kafka_topic_partition_list_add(offsets, "srctop2", 99)->offset =
+                999999111;
+        rd_kafka_topic_partition_list_add(offsets, "srctopic", 0)->offset = 999;
+        rd_kafka_topic_partition_list_add(offsets, "srctop2", 3499)->offset =
+                123456789;
+
+        rd_kafka_mock_push_request_errors(
+                rk->rk_mock.cluster,
+                RD_KAFKAP_AddPartitionsToTxn,
+                1,
+                RD_KAFKA_RESP_ERR_NOT_ENOUGH_REPLICAS);
+
+        err = rd_kafka_send_offsets_to_transaction(rk, offsets, "myGroupId",
+                                                   errstr, sizeof(errstr));
+        RD_UT_ASSERT(!err, "send_offsets_to_transaction failed: %s",
+                     rd_kafka_err2str(err));
+        rd_kafka_topic_partition_list_destroy(offsets);
+
+
+        /*
+         * Commit transaction, first with som failures, then succeed.
+         */
+        rd_kafka_mock_push_request_errors(
+                rk->rk_mock.cluster,
+                RD_KAFKAP_EndTxn,
+                3,
+                RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE,
+                RD_KAFKA_RESP_ERR_NOT_COORDINATOR,
+                RD_KAFKA_RESP_ERR_COORDINATOR_LOAD_IN_PROGRESS);
+
+        err = rd_kafka_commit_transaction(rk, 5000, errstr, sizeof(errstr));
+        RD_UT_ASSERT(!err, "commit_transaction failed: %s",
+                     rd_kafka_err2str(err));
+
+
+        /* All done */
 
         rd_kafka_destroy(rk);
 
@@ -2037,7 +2133,7 @@ static int ut_txnmgr_test_something (void) {
 int unittest_txnmgr (void) {
         int fails = 0;
 
-        fails += ut_txnmgr_test_something();
+        fails += ut_txnmgr_test_InitPid_errors();
 
         return fails;
 }

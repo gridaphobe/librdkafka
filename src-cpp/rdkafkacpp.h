@@ -2947,14 +2947,16 @@ class RD_EXPORT Producer : public virtual Handle {
    *
    * @fixme blocking?
    */
-  virtual ErrorCode commit_transaction (std::string &errstr) = 0;
+  virtual ErrorCode commit_transaction (int timeout_ms,
+                                        std::string &errstr) = 0;
 
   /**
    * @brief
    *
    * @fixme blocking?
    */
-  virtual ErrorCode abort_transaction (std::string &errstr) = 0;
+  virtual ErrorCode abort_transaction (int timeout_ms,
+                                       std::string &errstr) = 0;
 };
 
 /**@}*/
