@@ -71,6 +71,11 @@ idempotent: idempotent_par
 transactions: $(BIN)
 	for _test in 0098 0101; do TESTS=$$_test ./run-test.sh ./$(BIN) ; done
 
+# Run unit tests
+unit: $(BIN)
+	TESTS=0000 ./run-test.sh -p1
+
+
 # Delete all test topics (based on prefix)
 delete_topics:
 	TESTS=none ./run-test.sh -D bare
