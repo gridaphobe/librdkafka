@@ -829,7 +829,7 @@ static RD_INLINE void rd_kafka_buf_update_i16 (rd_kafka_buf_t *rkbuf,
  */
 static RD_INLINE size_t rd_kafka_buf_write_i32 (rd_kafka_buf_t *rkbuf,
                                                int32_t v) {
-        v = htobe32(v);
+        v = (int32_t)htobe32(v);
         return rd_kafka_buf_write(rkbuf, &v, sizeof(v));
 }
 
@@ -900,7 +900,8 @@ static RD_INLINE size_t rd_kafka_buf_write_kstr (rd_kafka_buf_t *rkbuf,
                                           RD_KAFKAP_STR_SIZE(kstr));
 
         len = RD_KAFKAP_STR_LEN(kstr);
-        rd_kafka_buf_write_i16(rkbuf, len);
+        rd_dassert(len <= INT16_MAX);
+        rd_kafka_buf_write_i16(rkbuf, (int16_t)len);
         rd_kafka_buf_write(rkbuf, kstr->str, len);
 
         return 2 + len;
