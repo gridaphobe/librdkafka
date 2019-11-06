@@ -392,8 +392,13 @@ struct rd_kafka_op_s {
                                             *   that needs to speak to a
                                             *   specific broker rather than
                                             *   the controller.
-                                            *   Defaults to -1:
-                                            *   look up and use controller. */
+                                            *   Special values:
+                                            *   -1 (default):
+                                            *   look up and use controller.
+                                            *   -2:
+                                            *   look up and use coordinator.
+                                            *   */
+                        char *coordname; /**< Which coordinator to look up.  */
 
                         /** Application's reply queue */
                         rd_kafka_replyq_t replyq;
