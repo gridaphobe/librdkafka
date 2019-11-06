@@ -4923,11 +4923,10 @@ rd_kafka_broker_t *rd_kafka_broker_add (rd_kafka_t *rk,
 
 	rd_kafka_broker_unlock(rkb);
 
-        /* Add broker state monitor for the (txn) coordinator request to use */
-        if (rd_kafka_is_transactional(rk))
-                rd_kafka_broker_monitor_add(&rkb->rkb_coord_monitor, rkb,
-                                            rk->rk_ops,
-                                            rd_kafka_coord_rkb_monitor_cb);
+        /* Add broker state monitor for the coordinator request to use */
+        rd_kafka_broker_monitor_add(&rkb->rkb_coord_monitor, rkb,
+                                    rk->rk_ops,
+                                    rd_kafka_coord_rkb_monitor_cb);
 
 
 #ifndef _MSC_VER

@@ -243,6 +243,12 @@ rd_kafka_ConfigEntry_copy (const rd_kafka_ConfigEntry_t *src);
 static void rd_kafka_ConfigEntry_free (void *ptr);
 static void *rd_kafka_ConfigEntry_list_copy (const void *src, void *opaque);
 
+static void rd_kafka_admin_handle_response (rd_kafka_t *rk,
+                                            rd_kafka_broker_t *rkb,
+                                            rd_kafka_resp_err_t err,
+                                            rd_kafka_buf_t *reply,
+                                            rd_kafka_buf_t *request,
+                                            void *opaque);
 
 /**
  * @name Common admin request code
@@ -333,6 +339,50 @@ static void rd_kafka_admin_result_fail (rd_kafka_op_t *rko_req,
         rd_kafka_admin_result_enq(rko_req, rko_result);
 }
 
+static rd_kafka_resp_err_t
+rd_kafka_coord_admin_request (rd_kafka_broker_t *rkb,
+                              rd_kafka_op_t *rko,
+                              rd_kafka_replyq_t replyq,
+                              rd_kafka_resp_cb_t *resp_cb,
+                              void *opaque) {
+        char errstr[512];
+        return rko->rko_u.admin_request.cbs->request(
+                rkb,
+                &rko->rko_u.admin_request.args,
+                &rko->rko_u.admin_request.options,
+                errstr, sizeof(errstr),
+                RD_KAFKA_REPLYQ(rkb->rkb_rk->rk_ops, 0),
+                rd_kafka_admin_handle_response,
+                rko->rko_u.admin_request.eonce);
+}
+
+static void
+rd_kafka_coord_admin_response_parse (rd_kafka_t *rk,
+                                     rd_kafka_broker_t *rkb,
+                                     rd_kafka_resp_err_t err,
+                                     rd_kafka_buf_t *rkbuf,
+                                     rd_kafka_buf_t *request,
+                                     void *opaque) {
+        char errstr[512];
+        rd_kafka_op_t *rko_result;
+
+        rd_kafka_op_t *rko = opaque;
+
+        /* FIXME */
+        char name[4] = "YOLO";
+
+        err = rko->rko_u.admin_request.cbs->parse(
+                rko, &rko_result,
+                rko->rko_u.admin_request.reply_buf,
+                errstr, sizeof(errstr));
+        if (err) {
+                rd_kafka_admin_result_fail(
+                        rko, err,
+                        "%s worker failed to parse response: %s",
+                        name, errstr);
+                /* goto destroy; */
+        }
+}
 
 
 /**
@@ -741,14 +791,32 @@ rd_kafka_admin_worker (rd_kafka_t *rk, rd_kafka_q_t *rkq, rd_kafka_op_t *rko) {
                 }
 
                 /* Look up controller or specific broker. */
-                if (rko->rko_u.admin_request.broker_id != -1) {
-                        /* Specific broker */
-                        rko->rko_u.admin_request.state =
-                                RD_KAFKA_ADMIN_STATE_WAIT_BROKER;
-                } else {
+                if (rko->rko_u.admin_request.broker_id == -1) {
                         /* Controller */
                         rko->rko_u.admin_request.state =
                                 RD_KAFKA_ADMIN_STATE_WAIT_CONTROLLER;
+                } else if (rko->rko_u.admin_request.broker_id == -2 ) {
+                        /* Coordinator */
+                        rko->rko_u.admin_request.state =
+                                RD_KAFKA_ADMIN_STATE_WAIT_RESPONSE;
+                        rd_kafka_DeleteGroup_t *grp = rd_list_elem(&rko->rko_u.admin_request.args, 0);
+                        rd_kafka_enq_once_add_source(rko->rko_u.admin_request.eonce, "coordinator request");
+                        rd_kafka_coord_req(rk,
+                                           RD_KAFKA_COORD_GROUP,
+                                           grp->group,
+                                           rd_kafka_coord_admin_request,
+                                           rko,
+                                           rko->rko_u.admin_request.abs_timeout,
+                                           RD_KAFKA_REPLYQ(rk->rk_ops, 0),
+                                           rd_kafka_coord_admin_response_parse,
+                                           rko);
+                        /* Wait asynchronously for broker response, which will
+                         * trigger the eonce and worker to be called again. */
+                        return RD_KAFKA_OP_RES_KEEP;
+                } else {
+                        /* Specific broker */
+                        rko->rko_u.admin_request.state =
+                                RD_KAFKA_ADMIN_STATE_WAIT_BROKER;
                 }
                 goto redo;  /* Trigger next state immediately */
         }
@@ -2914,6 +2982,7 @@ void rd_kafka_DeleteGroups (rd_kafka_t *rk,
                                             RD_KAFKA_OP_DELETEGROUPS,
                                             RD_KAFKA_EVENT_DELETEGROUPS_RESULT,
                                             &cbs, options, rkqu);
+        rko->rko_u.admin_request.broker_id = -2; /* coordinator */
 
         rd_list_init(&rko->rko_u.admin_request.args, (int)del_group_cnt,
                      rd_kafka_DeleteGroup_free);
