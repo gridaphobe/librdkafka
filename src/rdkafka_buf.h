@@ -462,6 +462,19 @@ typedef void (rd_kafka_resp_cb_t) (rd_kafka_t *rk,
                                    rd_kafka_buf_t *request,
                                    void *opaque);
 
+
+/**
+ * @brief Sender callback. This callback is used to construct and send (enq)
+ *        a rkbuf on a particular broker.
+ */
+typedef rd_kafka_resp_err_t (rd_kafka_send_req_cb_t) (
+        rd_kafka_broker_t *rkb,
+        rd_kafka_op_t *rko,
+        rd_kafka_replyq_t replyq,
+        rd_kafka_resp_cb_t *resp_cb,
+        void *reply_opaque);
+
+
 struct rd_kafka_buf_s { /* rd_kafka_buf_t */
 	TAILQ_ENTRY(rd_kafka_buf_s) rkbuf_link;
 
@@ -514,8 +527,10 @@ struct rd_kafka_buf_s { /* rd_kafka_buf_t */
 	rd_refcnt_t rkbuf_refcnt;
 	void   *rkbuf_opaque;
 
-	int     rkbuf_retries;            /* Retries so far. */
-#define RD_KAFKA_BUF_NO_RETRIES  1000000  /* Do not retry */
+        int     rkbuf_max_retries;        /**< Maximum retries to attempt. */
+#define RD_KAFKA_BUF_NO_RETRIES 0         /**< Do not retry */
+        int     rkbuf_retries;            /**< Retries so far. */
+
 
         int     rkbuf_features;   /* Required feature(s) that must be
                                    * supported by broker. */
@@ -814,7 +829,7 @@ static RD_INLINE void rd_kafka_buf_update_i16 (rd_kafka_buf_t *rkbuf,
  */
 static RD_INLINE size_t rd_kafka_buf_write_i32 (rd_kafka_buf_t *rkbuf,
                                                int32_t v) {
-        v = htobe32(v);
+        v = (int32_t)htobe32(v);
         return rd_kafka_buf_write(rkbuf, &v, sizeof(v));
 }
 
@@ -878,9 +893,20 @@ rd_kafka_buf_write_varint (rd_kafka_buf_t *rkbuf, int64_t v) {
  */
 static RD_INLINE size_t rd_kafka_buf_write_kstr (rd_kafka_buf_t *rkbuf,
                                                 const rd_kafkap_str_t *kstr) {
-        return rd_kafka_buf_write(rkbuf, RD_KAFKAP_STR_SER(kstr),
-				  RD_KAFKAP_STR_SIZE(kstr));
+        size_t len;
+
+        if (RD_KAFKAP_STR_IS_SERIALIZED(kstr))
+                return rd_kafka_buf_write(rkbuf, RD_KAFKAP_STR_SER(kstr),
+                                          RD_KAFKAP_STR_SIZE(kstr));
+
+        len = RD_KAFKAP_STR_LEN(kstr);
+        rd_dassert(len <= INT16_MAX);
+        rd_kafka_buf_write_i16(rkbuf, (int16_t)len);
+        rd_kafka_buf_write(rkbuf, kstr->str, len);
+
+        return 2 + len;
 }
+
 
 /**
  * Write (copy) char * string to buffer.
@@ -943,6 +969,13 @@ static RD_INLINE size_t rd_kafka_buf_write_bytes (rd_kafka_buf_t *rkbuf,
 }
 
 
+/**
+ * @brief Write bool to buffer.
+ */
+static RD_INLINE size_t rd_kafka_buf_write_bool (rd_kafka_buf_t *rkbuf,
+                                                 rd_bool_t v) {
+        return rd_kafka_buf_write_i8(rkbuf, (int8_t)v);
+}
 
 
 /**

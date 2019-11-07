@@ -197,7 +197,7 @@ static void rd_kafka_idemp_request_pid_tmr_cb (rd_kafka_timers_t *rkts,
 static void rd_kafka_idemp_restart_request_pid_tmr (rd_kafka_t *rk,
                                                     rd_bool_t immediate) {
         rd_kafka_timer_start_oneshot(&rk->rk_timers,
-                                     &rk->rk_eos.request_pid_tmr,
+                                     &rk->rk_eos.request_pid_tmr, rd_true,
                                      1000 * (immediate ? 1 : 500/*500ms*/),
                                      rd_kafka_idemp_request_pid_tmr_cb, rk);
 }

@@ -96,7 +96,8 @@ typedef RD_SHARED_PTR_TYPE(, struct rd_kafka_itopic_s) shptr_rd_kafka_itopic_t;
 #include "rdkafka_timer.h"
 #include "rdkafka_assignor.h"
 #include "rdkafka_metadata.h"
-
+#include "rdkafka_partition.h"
+#include "rdkafka_coord.h"
 
 /**
  * Protocol level sanity
@@ -299,6 +300,11 @@ struct rd_kafka_s {
                 rd_kafkap_str_t *transactional_id; /**< Transactional Id,
                                                     *   a null string. */
         } rk_eos;
+
+        rd_kafka_coord_cache_t   rk_coord_cache; /**< Coordinator cache */
+
+        TAILQ_HEAD(, rd_kafka_coord_req_s) rk_coord_reqs; /**< Coordinator
+                                                           *   requests */
 
 	const rd_kafkap_bytes_t *rk_null_bytes;
 
